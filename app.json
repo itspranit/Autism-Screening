@@ -12,7 +12,7 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.clinic.asdscreening",
       "infoPlist": {
-        "NSCameraUsageDescription": "This app requires camera access to perform real-time behavioral analysis for autism screening.",
+        "NSCameraUsageDescription": "ASD Screening needs camera access to analyze your child's behavioral patterns.",
         "NSMicrophoneUsageDescription": "Microphone access is required by the camera framework.",
         "NSPhotoLibraryUsageDescription": "Access needed to save session recordings."
       }
@@ -22,14 +22,21 @@
       "models/*.tflite"
     ],
     "plugins": [
+      "./withTfOps.js",
+      "./withModels.js",
       [
         "react-native-vision-camera",
         {
           "cameraPermissionText": "ASD Screening needs camera access to analyze your child's behavioral patterns.",
           "enableMicrophonePermission": false
         }
+      ]
+    ],
+    "android": {
+      "permissions": [
+        "android.permission.CAMERA"
       ],
-      "expo-av"
-    ]
+      "package": "com.clinic.asdscreening"
+    }
   }
 }
