@@ -6,7 +6,8 @@ export type RootStackParamList = {
   Consent: undefined;
   Setup: undefined;
   Recording: undefined;
-  Results: { result: ScreeningResult };
+  ProcessingScreen: { videoPath: string };
+  Results: { report: any }; 
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -89,6 +90,7 @@ export interface SessionState {
     faceReady: boolean;
   };
 }
+
 
 export const SESSION_DURATION_SECONDS = 180; // 3 minutes
 export const FRAME_BUFFER_SIZE = 100;
