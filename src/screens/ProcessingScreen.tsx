@@ -3,6 +3,7 @@ import { View, Text, ActivityIndicator, StyleSheet, NativeModules, ScrollView } 
 import { useNavigation, useRoute } from '@react-navigation/native';
 
 export function ProcessingScreen() {
+  
   const navigation = useNavigation<any>();
   const route = useRoute<any>();
   const videoPath = route.params?.videoPath; 
