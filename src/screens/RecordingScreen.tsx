@@ -169,6 +169,7 @@ const styles = StyleSheet.create({
     padding: 20, borderRadius: 20,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between'
   },
+  
   redDot: { width: 15, height: 15, borderRadius: 8, backgroundColor: '#EF4444' },
   timerText: { color: 'white', fontSize: 20, fontWeight: 'bold', flex: 1, marginLeft: 15 },
   stopBtn: { backgroundColor: 'transparent', padding: 10 },
