@@ -99,8 +99,15 @@ class VideoProcessor: NSObject {
               // 4. FINALIZE ENGINE B (MOTOR) LSTM INFERENCE
               var finalMotorRisk: Float = 0.15
               
+              // 🚨 FIX 2: Pad with the last known frame, NOT zeros!
+              let lastValidFrame = Array(motorSequence.suffix(72))
+              
               while motorSequence.count < (TARGET_MOTOR_FRAMES * 72) {
-                  motorSequence.append(0.0)
+                  if lastValidFrame.count == 72 {
+                      motorSequence.append(contentsOf: lastValidFrame) // Child "stands still"
+                  } else {
+                      motorSequence.append(0.0) // Failsafe if video was completely empty
+                  }
               }
               
               let motorData = Data(buffer: UnsafeBufferPointer(start: motorSequence, count: motorSequence.count))
@@ -206,7 +213,8 @@ class VideoProcessor: NSObject {
           func addPoint(key: VNHumanBodyPoseObservation.JointName, index: Int) {
               if let point = recognizedPoints[key], point.confidence > 0.1 {
                   features[index * 3] = Float(point.location.x)
-                  features[index * 3 + 1] = Float(point.location.y)
+                  // 🚨 FIX 1: Flip the Apple Y-Axis to match Python/MediaPipe
+                  features[index * 3 + 1] = Float(1.0 - point.location.y)
                   features[index * 3 + 2] = 0.0
               }
           }
