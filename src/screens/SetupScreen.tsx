@@ -9,6 +9,8 @@ import { Colors, Typography, Spacing, Radii } from '../styles/theme';
 import { RootStackParamList } from '../utils/types';
 import { loadMotorModel } from '../services/engineB_MotorBiometrics';
 import { loadFaceModel } from '../services/engineC_FacialPhenotyping';
+// 🚨 ADDED: We must import the Gaze Model loader!
+import { loadGazeModel } from '../services/engineA_GazeAnalysis'; 
 import * as Haptics from 'expo-haptics';
 
 type Props = {
@@ -24,10 +26,11 @@ interface SetupStep {
 }
 
 const STEPS: SetupStep[] = [
-  { id: 'camera',   label: 'Camera Permission',     description: 'Required for real-time analysis' },
-  { id: 'motorModel',  label: 'Loading Motor Model',  description: 'LSTM on Neural Engine (motor_risk_model.tflite)' },
-  { id: 'faceModel',   label: 'Loading Face Model',   description: 'MobileNetV2 on Neural Engine (face_risk_model.tflite)' },
-  { id: 'gaze',     label: 'Initializing Gaze Engine', description: 'Pure math engine — no model required' },
+  { id: 'camera',     label: 'Camera Permission',        description: 'Required for real-time analysis' },
+  { id: 'motorModel', label: 'Loading Motor Model',      description: 'LSTM Engine (motor_risk_model.tflite)' },
+  { id: 'faceModel',  label: 'Loading Phenotype Model',  description: 'MobileNet Engine (face_risk_model.tflite)' },
+  // 🚨 UPDATED: The UI text now reflects the new L2CS-Net model
+  { id: 'gaze',       label: 'Loading Gaze Engine',      description: 'L2CS-Net Engine (lc2net2.tflite)' }, 
 ];
 
 export function SetupScreen({ navigation }: Props) {
@@ -70,9 +73,9 @@ export function SetupScreen({ navigation }: Props) {
       setStatus('faceModel', 'done');
       await delay(300);
 
-      // Step 4: Gaze engine (instant)
+      // Step 4: Gaze engine (Now actually loading the AI!)
       setStatus('gaze', 'loading');
-      await delay(400);
+      await loadGazeModel(); // 🚨 CHANGED from delay(400) to actual load function
       setStatus('gaze', 'done');
 
       Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -91,7 +94,7 @@ export function SetupScreen({ navigation }: Props) {
         <View style={styles.header}>
           <Text style={styles.title}>System Preparation</Text>
           <Text style={styles.subtitle}>
-            Loading AI models onto the Neural Engine. This may take a few seconds.
+            Loading AI models onto the device. This may take a few seconds.
           </Text>
         </View>
 
@@ -118,7 +121,7 @@ export function SetupScreen({ navigation }: Props) {
             </Text>
             {!allDone && (
               <Text style={styles.readinessNote}>
-                Models load into the Neural Engine only once per session.
+                Models load into memory only once per session.
               </Text>
             )}
           </View>

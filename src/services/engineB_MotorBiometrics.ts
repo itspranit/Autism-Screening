@@ -1,27 +1,20 @@
 import { loadTensorflowModel, TensorflowModel } from 'react-native-fast-tflite';
 import { Asset } from 'expo-asset';
 import * as FileSystem from 'expo-file-system';
+import RNFS from 'react-native-fs';
 import { MotorAnalysis, FaceMeshLandmark, FRAME_BUFFER_SIZE, POSE_JOINT_COUNT, POSE_FEATURE_DIM } from '../utils/types';
 
 const MOTION_ENERGY_VELOCITY_SCALE = 0.01;
 let motorModel: TensorflowModel | null = null;
 
-import RNFS from 'react-native-fs';
-
-
-
-
-
 export async function loadMotorModel(): Promise<void> {
-  // if (motorModel) return;
   try {
     console.log('[EngineB] Hunting for model file in iOS bundle...');
     
-    // Check all 3 possible ways Xcode might have bundled the file
     const pathsToTry = [
-      `${RNFS.MainBundlePath}/motor_risk_model.tflite`,              // If files were dragged individually
-      `${RNFS.MainBundlePath}/models/motor_risk_model.tflite`,       // If the 'models' folder was dragged
-      `${RNFS.MainBundlePath}/assets/models/motor_risk_model.tflite` // If the 'assets' folder was dragged
+      `${RNFS.MainBundlePath}/motor_risk_model.tflite`,
+      `${RNFS.MainBundlePath}/models/motor_risk_model.tflite`,
+      `${RNFS.MainBundlePath}/assets/models/motor_risk_model.tflite`
     ];
 
     let foundPath = null;
@@ -38,10 +31,10 @@ export async function loadMotorModel(): Promise<void> {
 
     console.log(`[EngineB] Found model at: ${foundPath}`);
 
-    // Load it (Using 'as any' to bypass the strict TypeScript string error we had earlier)
+    // Load natively on CPU to bypass LSTM crashes
     motorModel = await loadTensorflowModel(
       { url: `file://${foundPath}` },
-      'default' as any 
+      'default'
     );
     console.log('[EngineB] Motor model loaded natively.');
   } catch (err) {
@@ -54,7 +47,6 @@ export function disposeMotorModel(): void {
   motorModel = null;
 }
 
-// ... (KEEP ALL YOUR EXISTING BUFFER & MATH FUNCTIONS BELOW THIS) ...
 export interface MotorEngineState {
   frameBuffer: Float32Array;
   frameCount: number;
@@ -67,24 +59,43 @@ export interface MotorEngineState {
 }
 
 export function createMotorEngine(): MotorEngineState {
-  return { frameBuffer: new Float32Array(FRAME_BUFFER_SIZE * POSE_FEATURE_DIM), frameCount: 0, writeIdx: 0, motionEnergyAccumulator: 0, motionEnergyFrames: 0, previousJoints: null, inferencePending: false, lastMotorRisk: 0 };
+  return { 
+    frameBuffer: new Float32Array(FRAME_BUFFER_SIZE * POSE_FEATURE_DIM), 
+    frameCount: 0, 
+    writeIdx: 0, 
+    motionEnergyAccumulator: 0, 
+    motionEnergyFrames: 0, 
+    previousJoints: null, 
+    inferencePending: false, 
+    lastMotorRisk: 0 
+  };
 }
 
+// FIXED: Uses Shoulders instead of Hips to prevent divide-by-zero when lower body is off-camera
 function normalisePoseLandmarks(landmarks: FaceMeshLandmark[]): Float32Array {
   const joints = new Float32Array(POSE_FEATURE_DIM);
-  const leftHip = landmarks[23] ?? { x: 0, y: 0, z: 0 };
-  const rightHip = landmarks[24] ?? { x: 0, y: 0, z: 0 };
+  
+  const leftShoulder = landmarks[11] ?? { x: 0, y: 0, z: 0 };
+  const rightShoulder = landmarks[12] ?? { x: 0.1, y: 0, z: 0 }; // 0.1 prevents divide by zero
   const nose = landmarks[0] ?? { x: 0, y: 0, z: 0 };
-  const hipMidX = (leftHip.x + rightHip.x) / 2;
-  const hipMidY = (leftHip.y + rightHip.y) / 2;
-  const hipMidZ = (leftHip.z + rightHip.z) / 2;
-  const torsoHeight = Math.sqrt(Math.pow(nose.x - hipMidX, 2) + Math.pow(nose.y - hipMidY, 2) + Math.pow(nose.z - hipMidZ, 2)) || 1;
+
+  const shoulderMidX = (leftShoulder.x + rightShoulder.x) / 2;
+  const shoulderMidY = (leftShoulder.y + rightShoulder.y) / 2;
+  const shoulderMidZ = (leftShoulder.z + rightShoulder.z) / 2;
+
+  let scaleFactor = Math.sqrt(
+    Math.pow(leftShoulder.x - rightShoulder.x, 2) + 
+    Math.pow(leftShoulder.y - rightShoulder.y, 2) + 
+    Math.pow(leftShoulder.z - rightShoulder.z, 2)
+  );
+
+  if (scaleFactor === 0 || isNaN(scaleFactor)) scaleFactor = 1.0;
 
   for (let i = 0; i < POSE_JOINT_COUNT; i++) {
     const lm = landmarks[i] ?? { x: 0, y: 0, z: 0 };
-    joints[i * 3 + 0] = (lm.x - hipMidX) / torsoHeight;
-    joints[i * 3 + 1] = (lm.y - hipMidY) / torsoHeight;
-    joints[i * 3 + 2] = (lm.z - hipMidZ) / torsoHeight;
+    joints[i * 3 + 0] = (lm.x - shoulderMidX) / scaleFactor;
+    joints[i * 3 + 1] = (lm.y - shoulderMidY) / scaleFactor;
+    joints[i * 3 + 2] = (lm.z - shoulderMidZ) / scaleFactor;
   }
   return joints;
 }
@@ -101,27 +112,51 @@ export function addMotorFrame(state: MotorEngineState, landmarks: FaceMeshLandma
   const joints = normalisePoseLandmarks(landmarks);
   const offset = state.writeIdx * POSE_FEATURE_DIM;
   state.frameBuffer.set(joints, offset);
+  
   let motionEnergy = 0;
   if (state.previousJoints) motionEnergy = computeMotionEnergy(joints, state.previousJoints);
-  const newState: MotorEngineState = { ...state, writeIdx: (state.writeIdx + 1) % FRAME_BUFFER_SIZE, frameCount: Math.min(state.frameCount + 1, FRAME_BUFFER_SIZE), motionEnergyAccumulator: state.motionEnergyAccumulator + motionEnergy, motionEnergyFrames: state.motionEnergyFrames + 1, previousJoints: joints };
+  
+  const newState: MotorEngineState = { 
+    ...state, 
+    writeIdx: (state.writeIdx + 1) % FRAME_BUFFER_SIZE, 
+    frameCount: Math.min(state.frameCount + 1, FRAME_BUFFER_SIZE), 
+    motionEnergyAccumulator: state.motionEnergyAccumulator + motionEnergy, 
+    motionEnergyFrames: state.motionEnergyFrames + 1, 
+    previousJoints: joints 
+  };
+  
   const bufferReady = newState.frameCount >= FRAME_BUFFER_SIZE;
   return { newState, bufferReady };
 }
 
 export async function runMotorInference(state: MotorEngineState): Promise<{ motorRisk: number; stimmingDetected: boolean }> {
   if (!motorModel) return { motorRisk: state.lastMotorRisk, stimmingDetected: state.lastMotorRisk > 0.5 };
+  
+  // 🚨 THE FIX: Do not run the AI until we have a full 100 frames!
+  if (state.frameCount < FRAME_BUFFER_SIZE) {
+    console.log(`[EngineB] Buffering movement... ${state.frameCount}/${FRAME_BUFFER_SIZE} frames`);
+    return { motorRisk: state.lastMotorRisk, stimmingDetected: false };
+  }
+
   const orderedBuffer = new Float32Array(FRAME_BUFFER_SIZE * POSE_FEATURE_DIM);
   const startIdx = state.frameCount >= FRAME_BUFFER_SIZE ? state.writeIdx : 0;
+  
   for (let i = 0; i < FRAME_BUFFER_SIZE; i++) {
     const srcIdx = (startIdx + i) % FRAME_BUFFER_SIZE;
     const srcOff = srcIdx * POSE_FEATURE_DIM;
     const dstOff = i * POSE_FEATURE_DIM;
     orderedBuffer.set(state.frameBuffer.subarray(srcOff, srcOff + POSE_FEATURE_DIM), dstOff);
   }
+  
+  // 🚨 DIAGNOSTIC CHECK: Are we feeding it zeros?
+  console.log(`[EngineB] Buffer Full! First 3 joint coordinates: ${orderedBuffer[0].toFixed(3)}, ${orderedBuffer[1].toFixed(3)}, ${orderedBuffer[2].toFixed(3)}`);
+
   try {
     const outputs = motorModel.runSync([orderedBuffer]);
     const rawOutput = outputs[0] as Float32Array;
     const motorRisk = Math.min(1, Math.max(0, rawOutput[0]));
+    
+    console.log(`[EngineB] AI Output: ${motorRisk}`);
     return { motorRisk, stimmingDetected: motorRisk > 0.5 };
   } catch (err) {
     console.error('[EngineB] Inference error:', err);
@@ -132,5 +167,10 @@ export async function runMotorInference(state: MotorEngineState): Promise<{ moto
 export function finalizeMotorAnalysis(state: MotorEngineState, motorRiskScore: number, stimmingDetected: boolean): MotorAnalysis {
   const frames = Math.max(state.motionEnergyFrames, 1);
   const motionEnergy = state.motionEnergyAccumulator / frames;
-  return { motorRiskScore: Math.min(1, Math.max(0, motorRiskScore)), stimmingDetected, motionEnergy: Math.min(1, motionEnergy * 10), bufferComplete: state.frameCount >= FRAME_BUFFER_SIZE };
+  return { 
+    motorRiskScore: Math.min(1, Math.max(0, motorRiskScore)), 
+    stimmingDetected, 
+    motionEnergy: Math.min(1, motionEnergy * 10), 
+    bufferComplete: state.frameCount >= FRAME_BUFFER_SIZE 
+  };
 }
