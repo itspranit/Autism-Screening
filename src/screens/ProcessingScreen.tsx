@@ -17,6 +17,7 @@ export function ProcessingScreen() {
       setLogs(prev => [...prev, message]);
     }, delay);
   };
+  
 
   useEffect(() => {
     const processVideo = async () => {
