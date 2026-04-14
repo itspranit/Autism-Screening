@@ -161,6 +161,7 @@ const styles = StyleSheet.create({
     paddingBottom: 60,
     zIndex: 20
   },
+  
   btn: { backgroundColor: '#4F46E5', padding: 15, borderRadius: 10, alignItems: 'center' },
   btnDisabled: { backgroundColor: '#333' },
   btnText: { color: 'white', fontWeight: 'bold', fontSize: 16 },
